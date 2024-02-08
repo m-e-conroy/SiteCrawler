@@ -7,11 +7,11 @@
 // Imports ==================================================================//
 
 import fs from 'fs'
-import chalk from "chalk"
+import chalk from 'chalk'
 import figlet from "figlet"
 import inquirer from "inquirer"
 import puppeteer from "puppeteer"
-import * as Cheerio from "cheerio"
+import * as cheerio from "cheerio"
 
 // Variables ================================================================//
 
@@ -22,6 +22,7 @@ const httpPattern = /^https?:\/\//
 let userAnswers = {}
 const urlQueue = []
 const urlsVisited = []
+let startTimer = ''
 
 // Functions ================================================================//
 
@@ -65,7 +66,7 @@ function removeHTMLComments (HTML) {
 } // removeHTMLComments
 
 function getBaseHref(HTML) {
-  const $ = Cheerio.load(HTML)
+  const $ = cheerio.load(HTML)
 
   // Find the base tag in the HTML
   const baseTag = $('base');
@@ -76,6 +77,18 @@ function getBaseHref(HTML) {
   }
   return ''
 } // getBaseHref
+
+function getLinks (HTML) {
+  const $ = cheerio.load(HTML)
+
+  const links = $('a[href]:not(a[href^="#"])')
+  const extracted = []
+  links.each((i, link) => {
+    extracted.push($(link).attr('href'))
+  })
+
+  return extracted
+} // getLinks
 
 // URL ......................................................................//
 
@@ -92,27 +105,59 @@ function normalizeUrl (URL) {
   const originalUrl = (httpPattern.test(URL)) ? URL : `https://${URL}`
   const urlSansProtocol = originalUrl.replace(httpPattern, '')
   const domain = urlSansProtocol.split('/')[0]
+  let baseUrl = ''
 
   // determine if we have a directory or a file at the end of the URL
   let slashIndex = originalUrl.lastIndexOf('/')
   if ((slashIndex + 1) === originalUrl.length) { // directory
-
+    console.log('1')
+    baseUrl = originalUrl
   } else {
-    let urlEnding = originalUrl.substring(slashIndex, originalUrl.length - 1)
-    let fileType = urlEnding.split('.')
-    if (fileType.length > 1) { // file
+    let urlEnding = originalUrl.substring((slashIndex + 1), originalUrl.length)
     
-    } else { // asssume directory
-      
+    if (urlEnding !== domain) {
+      let fileType = urlEnding.split('.')
+      if (fileType.length > 1) { // file - need to figure out directory
+        baseUrl = originalUrl.substring(0, slashIndex)
+      } else { // asssume directory
+        baseUrl = originalUrl
+      }
+    } else {
+      baseUrl = originalUrl
     }
+  } // if
+
+  return {
+    baseUrl,
+    originalUrl,
+    urlSansProtocol,
+    domain
   }
 } // normalizeUrl
+
+async function crawl () {
+  let urlActive = ''
+  while(urlActive = urlQueue.shift()) {
+    console.log(chalk.gray(`Crawling: ${urlActive}`))
+    let html = await fetch(urlActive).then(resp => resp.text())
+    if (html) {
+      let baseHref = getBaseHref(html)
+      let links = getLinks(html)
+
+      // determine full links with URL
+      console.log(`BASE HREF: ${baseHref}`)
+      console.log(`LINKS: `, links)
+    } else {
+      console.log(chalk.red(`Empty data returned for: ${urlActive}`))
+    }
+  }
+} // crawl
 
 // Projects .................................................................//
 
 function createProject (project) {
   const projectDir = `projects/${project.replace(/[^a-zA-Z]/g, '-').toLowerCase()}`
-  const imgDir = `${path}/img`
+  const imgDir = `${projectDir}/img`
 
   try {
     fs.mkdirSync(projectDir)
@@ -134,6 +179,8 @@ function createProject (project) {
 // Main .....................................................................//
 
 async function main () {
+  console.log(chalk.blue(figlet.textSync('SiteCrawler', {})))
+
   userAnswers = await questions()
     .then(answers => answers)
     .catch(err => exit())
@@ -142,8 +189,12 @@ async function main () {
   let project = createProject(userAnswers.projectName)
 
   if (project !== false) {
-    
-  }
+    const URLS = normalizeUrl(userAnswers.url)
+    urlQueue.push(URLS.originalUrl)
+    console.log(chalk.blue(`Crawl initiated at ${new Date().toLocaleString()}`))
+    startTimer = performance.now()
+    crawl()
+  } // if (project)
 } // main
 
 // Application ==============================================================//
