@@ -19,7 +19,17 @@ const urlPattern = /^(?:(?:https?|ftp):\/\/)?(?:\S+(?::\S*)?@)?(?:(?!10(?:\.\d{1
 const commentPattern = /<!--(.*?)-->/g
 const httpPattern = /^https?:\/\//
 
+const unwantedProtocolsPattern = /[mailto|tel]:/i // remove all urls that are email and telephone links
+const unwantedUrlsPattern = /^[#|\/]$/i // remove urls that are only a hash tag or slash
+const documentPattern = /\.(pdf|doc|docx|txt|wpd|xls|jpg|jpeg|gif|png|webp|avif|tiff|psd)/gi
+
 let userAnswers = {}
+let URLS = {
+  baseUrl: undefined,
+  originalUrl: undefined,
+  urlSansProtocol: undefined,
+  domain: undefined
+}
 const urlQueue = []
 const urlsVisited = []
 let startTimer = ''
@@ -90,6 +100,50 @@ function getLinks (HTML) {
   return extracted
 } // getLinks
 
+function filterLinks (links) {
+  // remove all fully qualified links that are not in the domain we are crawling
+
+  links = links.filter(link => {
+    if (httpPattern.test(link)) { // check fully qualified URLs against our baseURL
+      let regex = new RegExp(URLS.baseUrl, 'i')
+      if (!regex.test(link)) return false
+    }
+    return !unwantedProtocolsPattern.test(link) && !unwantedUrlsPattern.test(link) && !documentPattern.test(link)
+  })
+  return links
+} // filterLinks
+
+function processRelativeLinks (links, baseHref) {
+  baseHref = normalizeBase(baseHref)
+
+  links = links.map(link => {
+    if (link.charAt(0) === '/') {
+      return `https://${URLS.domain}${link}`
+    }
+    return `${baseHref}${link}`
+  })
+
+  // remove duplicates
+  return [...new Set(links)]
+} // processRelativeLinks
+
+function filterForVisitedLinks (links) {
+  return new Promise((resolve, reject) => {
+    links.forEach(link => {
+      if (!urlsVisited.includes(link) && !urlQueue.includes(link)) {
+        urlQueue.push(link)
+      }
+    })
+    resolve()
+  })
+} // filterForVisitedLinks
+
+function removeHash (links) {
+  return links.map(link => {
+    return link.split('#')[0]
+  })
+} // removeHash
+
 // URL ......................................................................//
 
 function removeQueryString (URL) {
@@ -135,6 +189,21 @@ function normalizeUrl (URL) {
   }
 } // normalizeUrl
 
+function normalizeBase (baseHref) {
+  if (baseHref) {
+    if (!httpPattern.test(baseHref)) {
+      if (baseHref.charAt(0) === '/') {
+        baseHref = `https://${URLS.domain}/`
+      } else {
+        baseHref = `https://${URLS.domain}/${baseHref}`
+      }
+    }
+  } else {
+    baseHref = URLS.originalUrl
+  }
+  return (baseHref.charAt(baseHref.length - 1) !== '/') ? `${baseHref}/` : baseHref
+} // normalizeBase
+
 async function crawl () {
   let urlActive = ''
   while(urlActive = urlQueue.shift()) {
@@ -142,11 +211,12 @@ async function crawl () {
     let html = await fetch(urlActive).then(resp => resp.text())
     if (html) {
       let baseHref = getBaseHref(html)
-      let links = getLinks(html)
+      let links = processRelativeLinks(filterLinks(removeHash(getLinks(html))), baseHref)
+      await filterForVisitedLinks(links)
 
       // determine full links with URL
       console.log(`BASE HREF: ${baseHref}`)
-      console.log(`LINKS: `, links)
+      console.log(`LINKS: `, urlQueue)
     } else {
       console.log(chalk.red(`Empty data returned for: ${urlActive}`))
     }
@@ -189,7 +259,7 @@ async function main () {
   let project = createProject(userAnswers.projectName)
 
   if (project !== false) {
-    const URLS = normalizeUrl(userAnswers.url)
+    URLS = normalizeUrl(userAnswers.url)
     urlQueue.push(URLS.originalUrl)
     console.log(chalk.blue(`Crawl initiated at ${new Date().toLocaleString()}`))
     startTimer = performance.now()
