@@ -344,7 +344,7 @@ async function main () {
     (!httpPattern.test(userAnswers.url)) ? crawlQueue.add(`https://${userAnswers.url}`) : crawlQueue.add(userAnswers.url)
 
     let url = ''
-    /* while (crawlQueue.size > 0) {
+    while (crawlQueue.size > 0) {
       url = queuePop()
       if (url !== false) {
         console.log(chalk.bgMagentaBright.black(`Crawling: ${url}`))
@@ -359,7 +359,7 @@ async function main () {
           })
       } // if
       await delay(1000)
-    } // while */
+    } // while
 
     // capture images
     await takeScreenshots().then(() => console.log(chalk.bgYellowBright.black('Finished taking screenshots.')))
