@@ -2,6 +2,16 @@
  * Site Crawler
  * @description Crawls websites to extract data and create relative material
  * for comparisons and analysis of a site.
+ * 
+ * Sitemap Layout:
+ * {
+ *  "page title": {
+ *    url: string,
+ *    headings: array,
+ *    internalLinks: array,
+ *    externalLinks: array
+ *  }
+ * }
  ****************************************************************************/
 
 // Imports ==================================================================//
@@ -12,6 +22,8 @@ import figlet from "figlet"
 import inquirer from "inquirer"
 import * as cheerio from "cheerio"
 import { exit } from 'process'
+import puppeteer from 'puppeteer'
+import Randomstring from "randomstring"
 
 // Variables ================================================================//
 
@@ -21,14 +33,26 @@ const httpPattern = /^https?:\/\//
 let originalUrl = undefined
 const crawledUrls = new Set()
 let crawlQueue = new Set()
-const sitemap = {}
+let sitemap = []
+let project
 
 // Functions ================================================================//
 
+/**
+ * Delay
+ * @description Delay execution by 'ms' milliseconds. 1000 = 1 second.
+ * @param {*} ms 
+ * @returns Promise
+ */
 async function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 } // delay
 
+/**
+ * Queue Pop
+ * @description Retrieves the last item in the queue (Set) and removes it from the Set.
+ * @returns {*}|false
+ */
 function queuePop() {
   let lastItem
   if (crawlQueue.size > 0) {
@@ -40,6 +64,12 @@ function queuePop() {
   return false
 } // setPop
 
+/**
+ * Is External URL
+ * @description Identifies whether or not a URL is from the same origin as the requested URL.
+ * @param {*} url 
+ * @returns Boolean
+ */
 function isExternalUrl(url) {
   try {
     const parsedUrl = new URL(url)
@@ -50,6 +80,12 @@ function isExternalUrl(url) {
   }
 } // isExternalUrl
 
+/**
+ * Remove Query Hash
+ * @description Removes and querystring and hash values from the URL.
+ * @param {*} url 
+ * @returns string
+ */
 function removeQueryHash(url) {
   try {
     if (url.match(/\?/))
@@ -63,6 +99,12 @@ function removeQueryHash(url) {
   }
 } // removeQueryHash
 
+/**
+ * Crawl
+ * @description Given a URL it will access the page and save all headings and links to the sitemap array.
+ * @param {*} url 
+ * @returns Promise
+ */
 async function crawl(url) {
   return new Promise(async (resolve, reject) => {
     if (crawledUrls.has(url)) {
@@ -136,7 +178,7 @@ async function crawl(url) {
             })
             internalLinks = [...new Set(internalLinks)]
 
-            sitemap[title] = { url, headings, internalLinks, externalLinks }
+            sitemap.push({ title, url, headings, internalLinks, externalLinks })
         
             console.log(chalk.blueBright(`Crawled: ${url}`))
             console.log(chalk.blueBright(`Title: ${title}`))
@@ -155,34 +197,85 @@ async function crawl(url) {
   })
 } // crawl
 
+/**
+ * Take Screenshots
+ * @description Takes a fullpage screenshot of a page and saves it to an image and to the sitemap array.
+ */
+async function takeScreenshots () {
+  return new Promise(async (resolve, reject) => {
+    console.log(chalk.bgMagentaBright.black('Taking Screenshots.'))
+    const browser = await puppeteer.launch({
+      headless: 'new',
+      dumpio: true,
+      args: [
+        '--enable-chrome-browser-cloud-management',
+        '--disable-extensions',
+        '--no-sandbox'
+      ],
+      defaultViewport: {
+        width: 1280,
+        height: 800
+      },
+      slowMo: 1000
+    })
+    const loadedPage = await browser.newPage()
+
+    for (let i=0,cnt=sitemap.length; i<cnt; i++) {
+      await loadedPage.goto(sitemap[i].url)
+      let filename = `${Randomstring.generate({ chartset: 'alphanumberic' })}-${new Date().toLocaleString().replace(/\s+/g,'_').replace(/[^a-zA-Z0-9]+/g,'-')}.png`
+      await loadedPage.screenshot({ path: `${project.imageDir}/${filename}`, fullPage: true })
+      sitemap[i].image = filename
+
+      console.log(chalk.bgWhiteBright.black(`Screenshot taken: ${sitemap[i].title}`))
+    }
+
+    await browser.close().finally(() => {
+      resolve()
+    })
+  })
+} // takeScreenshots
+
+/**
+ * Generate HTML Sitemap
+ * @description Uses the heading data to make a crude outline of pages on the site.
+ * @param {*} data 
+ * @returns string
+ */
 function generateHtmlSitemap(data) {
   let html =
-    '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Crawled Site Map</title></head><body>';
-  html += "<h1>Crawled Site Map</h1>";
-  for (const title in data) {
-    const page = data[title];
-    html += `<h2>${title}</h2>`;
-    html += `<h3>Headings:</h3>`;
-    html += "<ul>";
+    '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Crawled Site Map</title></head><body>'
+  html += "<h1>Crawled Site Map</h1>"
+  for (const i in data) {
+    const page = data[i];
+    html += `<div class="page"><h2>${page.title}</h2>`
+    html += `<div class="headings"><h3>Headings:</h3>`
+    html += "<ul>"
     page.headings.forEach((heading) => {
-      const level = parseInt(heading.level, 10); // Convert level to number for padding
-      html += `<li style="padding-left: ${level * 15}px;">${heading.text}</li>`;
+      const level = parseInt(heading.level, 10) // Convert level to number for padding
+      html += `<li style="padding-left: ${level * 15}px;">${heading.text}</li>`
     });
-    html += "</ul>";
+    html += '</ul></div>'
 
     if (page.externalLinks.length) {
-      html += `<h3>External Links:</h3>`;
-      html += "<ul>";
+      html += `<div class="links"><h3>External Links:</h3>`
+      html += '<ul>'
       page.externalLinks.forEach((link) => {
-        html += `<li><a href="${link}" target="_blank">${link}</a></li>`;
+        html += `<li><a href="${link}" target="_blank">${link}</a></li>`
       });
-      html += "</ul>";
+      html += '</ul></div>'
     }
+    html += '</div>'
   }
-  html += "</body></html>";
+  html += '</body></html>'
   return html;
 } // generateHtmlSitemap
 
+/**
+ * Create Project
+ * @description Creates a project directory for the given request based on the project name input.
+ * @param {*} project 
+ * @returns 
+ */
 function createProject (project) {
   const projectDir = `projects/${project.replace(/[^a-zA-Z]/g, '-').toLowerCase()}`
   const imgDir = `${projectDir}/img`
@@ -204,6 +297,11 @@ function createProject (project) {
   }
 } // end createProject
 
+/**
+ * Questions
+ * @description Asks the user several questions to get the application started.
+ * @returns Promise
+ */
 function questions () {
   return new Promise((resolve, reject) => {
     inquirer
@@ -229,6 +327,10 @@ function questions () {
   }) // Promise
 } // questions
 
+/**
+ * Main
+ * @description Starts the application
+ */
 async function main () {
   console.log(chalk.blue(figlet.textSync('SiteCrawler', {})))
 
@@ -236,13 +338,13 @@ async function main () {
     .then(answers => answers)
     .catch(err => exit())
 
-  let project = createProject(userAnswers.projectName)
+  project = createProject(userAnswers.projectName)
 
   if (project !== false) {
     (!httpPattern.test(userAnswers.url)) ? crawlQueue.add(`https://${userAnswers.url}`) : crawlQueue.add(userAnswers.url)
 
     let url = ''
-    while (crawlQueue.size > 0) {
+    /* while (crawlQueue.size > 0) {
       url = queuePop()
       if (url !== false) {
         console.log(chalk.bgMagentaBright.black(`Crawling: ${url}`))
@@ -257,13 +359,17 @@ async function main () {
           })
       } // if
       await delay(1000)
-    } // while
+    } // while */
+
+    // capture images
+    await takeScreenshots().then(() => console.log(chalk.bgYellowBright.black('Finished taking screenshots.')))
 
     // create HTML page
-    const HTML = generateHtmlSitemap(sitemap)
+    // const HTML = generateHtmlSitemap(sitemap)
     fs.writeFileSync(`${project.projectDir}/sitemap.json`, JSON.stringify(sitemap))
-    fs.writeFileSync(`${project.projectDir}/outline.html`, HTML)
-    console.log(chalk.blueBright(`Site outline generated: ${project.projectDir}/outline.html`))
+    // fs.writeFileSync(`${project.projectDir}/outline.html`, HTML)
+    // console.log(chalk.blueBright(`Site outline generated: ${project.projectDir}/outline.html`))
+    console.log(chalk.blueBright(`Site crawled and a sitemap generated: ${project.projectDir}/sitemap.json`))
   } // if
 } // main
 
