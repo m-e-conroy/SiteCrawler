@@ -5,7 +5,9 @@
   "main": "main.js",
   "type": "module",
   "scripts": {
-    "crawl": "node crawl.js"
+    "crawl": "node crawl.js",
+    "buildHTML": "node build.js",
+    "serveProject": "node server.js"
   },
   "repository": {
     "type": "git",
