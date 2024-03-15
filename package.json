@@ -1,6 +1,6 @@
 {
   "name": "sitecrawler",
-  "version": "0.2.1-0",
+  "version": "0.3.0",
   "description": "Crawl websites to extract various pieces of data.",
   "main": "main.js",
   "type": "module",
