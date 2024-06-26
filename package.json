@@ -7,7 +7,9 @@
   "scripts": {
     "crawl": "node crawl.js",
     "buildHTML": "node build.js",
-    "serveProject": "node server.js"
+    "serveProject": "node server.js",
+    "site2pdf": "node site2pdf.js",
+    "html2pdf": "node html2pdf.js"
   },
   "repository": {
     "type": "git",
@@ -30,8 +32,8 @@
     "chalk": "^5.3.0",
     "cheerio": "^1.0.0-rc.12",
     "figlet": "^1.7.0",
-    "inquirer": "^9.2.14",
-    "puppeteer": "^22.4.1",
+    "inquirer": "^9.2.23",
+    "puppeteer": "^22.12.0",
     "randomstring": "^1.3.0"
   }
 }
