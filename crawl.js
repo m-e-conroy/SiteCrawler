@@ -35,6 +35,7 @@ const crawledUrls = new Set()
 let crawlQueue = new Set()
 let sitemap = []
 let project
+let takeScreenshotsYN = false
 
 // Functions ================================================================//
 
@@ -73,7 +74,10 @@ function queuePop() {
 function isExternalUrl(url) {
   try {
     const parsedUrl = new URL(url)
-    return parsedUrl.origin !== originalUrl.origin;
+    // take into account subfolder for the originalUrl
+    const re = new RegExp(originalUrl.pathname,'i')
+    return ((parsedUrl.hostname !== originalUrl.hostname) || !parsedUrl.pathname.match(re))
+    // return parsedUrl.origin !== originalUrl.origin;
   } catch (error) {
     console.error(chalk.red(`Error determining external URL (${url}): ${error}`))
     return true
@@ -112,6 +116,8 @@ async function crawl(url) {
     }
   
     if (!originalUrl) originalUrl = new URL(url)
+
+    // console.log(originalUrl)
   
     try {
       if (!urlPattern.test(url)) throw 'URL not properly formed.'
@@ -121,6 +127,12 @@ async function crawl(url) {
         resp.headers.forEach((key, val) => {
           if ((val.toLowerCase() === 'content-type') && key.toLowerCase().match(/html/)) {
             let $ = cheerio.load(HTML)
+
+            // save meta data
+            let metaData = {
+              description: $("meta[name='description']").attr("content") ?? '',
+              keywords: $("meta[name='keywords']").attr("content") ?? '',
+            }
 
             // save page title and headings
             let title = $("title").text().trim()
@@ -146,21 +158,29 @@ async function crawl(url) {
               .filter(Boolean)
             
             links.each((i, link) => {
-              if (link.startsWith("http")) {
+              // console.log(link, externalLinks.size, internalLinks.size)
+              if (link.startsWith("http") || link.startsWith("//")) { // full formed URLs
                 (isExternalUrl(link)) ? externalLinks.add(link) : internalLinks.add(link)
-              } else {
+              } else { // relative URLs
                 // Handle relative URL based on base tag
                 let baseUrl = $("base[href]").attr("href") || url
                 try {
                   if (link !== '/') {
-                    baseUrl = new URL(baseUrl, originalUrl).toString()
-                    link = new URL(link, baseUrl).toString()
-                    internalLinks.add(link)
+                    baseUrl = new URL(baseUrl, originalUrl)
+                    link = new URL(link, baseUrl)
+
+                    const re = new RegExp(originalUrl.pathname,'i')
+                    if (link.pathname.match(re) && (link.pathname !== (baseUrl.pathname + '.html'))) {
+                      internalLinks.add(link.toString())
+                    } else {
+                      externalLinks.add(link.toString())
+                    }
                   }
                 } catch (error) {
                   console.log(chalk.red(`Failed to create internal relative link for: ${baseUrl} (${error.message})`))
                 }
               }
+              // console.log(link.toString(), externalLinks.size, internalLinks.size)
             }) // $(a)
             
 
@@ -168,6 +188,8 @@ async function crawl(url) {
 
             internalLinks = [...internalLinks]
             externalLinks = [...externalLinks]
+
+            // console.log(internalLinks)
 
             internalLinks.map(url => {
               if (url.startsWith('http')) {
@@ -178,7 +200,7 @@ async function crawl(url) {
             })
             internalLinks = [...new Set(internalLinks)]
 
-            sitemap.push({ title, url, headings, internalLinks, externalLinks })
+            sitemap.push({ title, url, metaData, headings, internalLinks, externalLinks })
         
             console.log(chalk.blueBright(`Crawled: ${url}`))
             console.log(chalk.blueBright(`Title: ${title}`))
@@ -277,7 +299,7 @@ function generateHtmlSitemap(data) {
  * @returns 
  */
 function createProject (project) {
-  const projectDir = `projects/${project.replace(/[^a-zA-Z]/g, '-').toLowerCase()}`
+  const projectDir = `projects/${project.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}`
   const imgDir = `${projectDir}/img`
 
   try {
@@ -318,6 +340,11 @@ function questions () {
           message: 'Enter the URL to crawl: ',
           default: 'admissions.buffalo.edu',
           validate: val => urlPattern.test(val)
+        },{
+          type: 'confirm',
+          name: 'takeScreenshotsYN',
+          message: 'Would you like to take screenshots of the pages?',
+          default: false
         }
       ])
       .then(answers => resolve(answers))
@@ -343,6 +370,8 @@ async function main () {
   if (project !== false) {
     (!httpPattern.test(userAnswers.url)) ? crawlQueue.add(`https://${userAnswers.url}`) : crawlQueue.add(userAnswers.url)
 
+    takeScreenshotsYN = userAnswers.takeScreenshotsYN
+
     let url = ''
     while (crawlQueue.size > 0) {
       url = queuePop()
@@ -362,13 +391,18 @@ async function main () {
     } // while
 
     // capture images
-    await takeScreenshots().then(() => console.log(chalk.bgYellowBright.black('Finished taking screenshots.')))
+    if (takeScreenshotsYN) {
+      await takeScreenshots().then(() => console.log(chalk.bgYellowBright.black('Finished taking screenshots.')))
+      console.log(chalk.bgMagentaBright.black('Taking screenshots of pages.'))
+    } else {
+      console.log(chalk.bgMagentaBright.black('Skipping screenshots of pages.'))
+    } // if
 
     // create HTML page
-    // const HTML = generateHtmlSitemap(sitemap)
+    const HTML = generateHtmlSitemap(sitemap)
     fs.writeFileSync(`${project.projectDir}/sitemap.json`, JSON.stringify(sitemap))
-    // fs.writeFileSync(`${project.projectDir}/outline.html`, HTML)
-    // console.log(chalk.blueBright(`Site outline generated: ${project.projectDir}/outline.html`))
+    fs.writeFileSync(`${project.projectDir}/outline.html`, HTML)
+    console.log(chalk.blueBright(`Site outline generated: ${project.projectDir}/outline.html`))
     console.log(chalk.blueBright(`Site crawled and a sitemap generated: ${project.projectDir}/sitemap.json`))
   } // if
 } // main

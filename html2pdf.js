@@ -108,13 +108,13 @@ function cmdLineQuestions () {
           type: 'input',
           name: 'directory',
           message: 'Directory where the HTML documents reside? ',
-          default: '../catalog-archives/2122/academicprograms/',
+          default: '../catalog-archives/2122/policies/',
           validate: val => val != undefined
         }, {
           type: 'input',
           name: 'outputDirectory',
           message: 'Where to ouput PDF files? ',
-          default: './PDFS/2122-Redux/academicprograms/',
+          default: './PDFS/2122-Redux/policies/',
           validate: val => val != undefined
         }
       ])
